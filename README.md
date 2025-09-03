@@ -59,10 +59,9 @@ ORDER BY u.id;
 ```bash
 docker exec -it poc-pg-acesso psql -U poc -d acesso
 ```
-```sql
 ---
 
-#Criar tópicos 
+# Criar tópicos 
 ```bash
 docker exec -it poc-kafka kafka-topics \
   --bootstrap-server kafka:9092 \
@@ -176,18 +175,32 @@ CREATE STREAM UC_SRC (
 -- garante leitura desde o início no console
 SET 'auto.offset.reset' = 'earliest';
 
-CREATE TABLE USUARIO AS
-  SELECT
-    CAST(USUARIO_SRC->after->id AS BIGINT) AS usuario_id,
-    LATEST_BY_OFFSET(
-      CAST(USUARIO_SRC->after->ativo AS BOOLEAN)
-      AND
-      CAST(USUARIO_SRC->after->pode_acessar AS BOOLEAN)
-    ) AS pode
-  FROM USUARIO_SRC
-  WHERE USUARIO_SRC->op IN ('c','u','r')   -- ignora tombstones
-  GROUP BY CAST(USUARIO_SRC->after->id AS BIGINT);
 
+CREATE TABLE CONTRATO AS
+  SELECT
+    CAST(CONTRATO_SRC->after->id AS BIGINT) AS contrato_id,
+    LATEST_BY_OFFSET(CAST(CONTRATO_SRC->after->ativo AS BOOLEAN)) AS ativo
+  FROM CONTRATO_SRC
+  WHERE CONTRATO_SRC->op IN ('c','u','r')
+  GROUP BY CAST(CONTRATO_SRC->after->id AS BIGINT);
+
+CREATE TABLE CONTRATO AS
+  SELECT
+    CAST(after->id AS BIGINT) AS contrato_id,
+    LATEST_BY_OFFSET(CAST(after->ativo AS BOOLEAN)) AS ativo
+  FROM CONTRATO_SRC
+  WHERE op IN ('c','u','r') AND after IS NOT NULL
+  GROUP BY CAST(after->id AS BIGINT);
+
+CREATE TABLE USUARIO_CONTRATOS AS
+  SELECT
+    CAST(after->id AS BIGINT) AS usuario_id,
+    COLLECT_SET(CAST(after->contrato_id AS BIGINT)) FILTER (
+      WHERE CAST(after->ativo AS BOOLEAN) = TRUE
+    ) AS contratos_ativos
+  FROM UC_SRC
+  WHERE op IN ('c','u','r') AND after IS NOT NULL
+  GROUP BY CAST(after->usuario_id AS BIGINT);
 
 
 ```
