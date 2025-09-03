@@ -1,0 +1,104 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: poc-pg-acesso
+    environment:
+      POSTGRES_USER: poc
+      POSTGRES_PASSWORD: poc
+      POSTGRES_DB: acesso
+    ports:
+      - "5432:5432"
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "wal_keep_size=256MB"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U poc -d acesso"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - ./init:/docker-entrypoint-initdb.d
+    networks:
+      - POC
+  # === Zookeeper ===
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: poc-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks: [POC]
+ # === Kafka Broker ===
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: poc-kafka
+    depends_on: [zookeeper]
+    ports:
+      - "9092:9092"            # acesso do host
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # Listeners: um interno (rede docker) e um externo (host)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+
+      # Tópicos internos com RF=1 (ambiente de dev)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+
+      # Em dev, ajuda deixar auto-create ON
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      POC:
+        aliases:
+        - kafka
+   # === Kafka Connect (com Debezium) ===
+  connect:
+    image: debezium/connect:2.7.2.Final
+    container_name: poc-connect
+    depends_on: [kafka, postgres]
+    ports:
+      - "8083:8083"  # REST do Connect
+    environment:
+      BOOTSTRAP_SERVERS: "kafka:9092"
+      GROUP_ID: "poc-connect-group"
+      CONFIG_STORAGE_TOPIC: _connect-configs
+      OFFSET_STORAGE_TOPIC: _connect-offsets
+      STATUS_STORAGE_TOPIC: _connect-status
+
+      # Converters simples (JSON sem schema) para facilitar a POC
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    networks:
+      - POC
+
+
+    # === UI Visual do Kafka ===
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: poc-kafka-ui
+    depends_on: [kafka, zookeeper]
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "POC"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:9092"
+      KAFKA_CLUSTERS_0_ZOOKEEPER: "zookeeper:2181"
+      SERVER_PORT: 8080
+    networks: [POC]
+networks:
+  POC:
+    name: POC 

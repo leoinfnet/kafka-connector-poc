@@ -1,0 +1,32 @@
+{
+  "name": "pg-acesso-debezium",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "poc",
+    "database.password": "poc",
+    "database.dbname": "acesso",
+
+    "topic.prefix": "pg",
+    "plugin.name": "pgoutput",
+
+    "slot.name": "slot_acesso",
+    "slot.drop.on.stop": "false",
+
+    "publication.name": "pub_acesso",
+    "publication.autocreate.mode": "filtered",
+
+    "table.include.list": "auth.cliente,auth.contrato,auth.cliente_contrato",
+
+    "snapshot.mode": "initial",
+    "tombstones.on.delete": "true",
+    "delete.handling.mode": "none",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}
