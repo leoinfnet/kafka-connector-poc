@@ -112,3 +112,36 @@ LEFT JOIN auth.contrato c          ON c.id = uc.contrato_id
 GROUP BY u.id, u.nome, u.ativo, u.pode_acessar
 ORDER BY u.id;
 ```
+---
+# CONECTORES
+
+## Criar conector via REST
+```bash
+curl -s -X POST http://localhost:8083/connectors \
+-H 'Content-Type: application/json' \
+-d @connectors/debezium-postgres.json | jq .
+```
+## Conferir status
+curl -s http://localhost:8083/connectors/pg-acesso-debezium/status | jq .
+
+# Testando CDC
+```
+docker exec -it poc-pg-acesso psql -U poc -d acesso
+```
+```sql
+-- Ativar um contrato que estava inativo
+UPDATE auth.contrato SET ativo = true, atualizado_em = now() WHERE id = 2;
+
+
+-- Ligar um usuário a um contrato
+INSERT INTO auth.usuario_contrato (usuario_id, contrato_id, ativo) VALUES (2, 1, true)
+ON CONFLICT (usuario_id, contrato_id) DO UPDATE SET ativo = EXCLUDED.ativo, atualizado_em = now();
+
+
+-- Desativar vínculo (sem deletar)
+UPDATE auth.usuario_contrato SET ativo = false, atualizado_em = now() WHERE usuario_id = 1 AND contrato_id = 2;
+
+
+-- Bloquear acesso lógico de um usuário
+UPDATE auth.usuario SET pode_acessar = false, atualizado_em = now() WHERE id = 1;
+```
