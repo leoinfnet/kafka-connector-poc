@@ -18,7 +18,7 @@
     "publication.name": "pub_acesso",
     "publication.autocreate.mode": "filtered",
 
-    "table.include.list": "auth.cliente,auth.contrato,auth.cliente_contrato",
+    "table.include.list": "auth.usuario,auth.contrato,auth.usuario_contrato",
 
     "snapshot.mode": "never", 
     "tombstones.on.delete": "true",

@@ -12,93 +12,36 @@ poc-pg/
      └─ 001_schema.sql
 ```
 
-### docker-compose.yml (somente Postgres + rede POC)
-```yaml
-version: "3.9"
-
-networks:
-  POC:
-    name: POC
-
-services:
-  postgres:
-    image: postgres:16
-    container_name: poc-pg-acesso
-    environment:
-      POSTGRES_USER: poc
-      POSTGRES_PASSWORD: poc
-      POSTGRES_DB: acesso
-    ports:
-      - "5432:5432"
-    command:
-      - "postgres"
-      - "-c"
-      - "wal_level=logical"
-      - "-c"
-      - "max_wal_senders=10"
-      - "-c"
-      - "max_replication_slots=10"
-      - "-c"
-      - "wal_keep_size=256MB"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U poc -d acesso"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    volumes:
-      - ./initdb:/docker-entrypoint-initdb.d
-    networks: [POC]
-```
-
-### initdb/001_schema.sql (modelo de dados atualizado)
+# No Compose Para elimiar warnings 
 ```sql
-CREATE SCHEMA IF NOT EXISTS auth;
 
-CREATE TABLE IF NOT EXISTS auth.usuario (
-  id BIGSERIAL PRIMARY KEY,
-  nome TEXT NOT NULL,
-  email TEXT UNIQUE,
-  pode_acessar BOOLEAN NOT NULL DEFAULT true,
-  ativo BOOLEAN NOT NULL DEFAULT true,
-  criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
-  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+# ksqldb
+  ksqldb:
+    environment:
+      KSQL_JMX_OPTS: "-Dcom.sun.management.jmxremote=false"
 
-CREATE TABLE IF NOT EXISTS auth.contrato (
-  id BIGSERIAL PRIMARY KEY,
-  descricao TEXT,
-  ativo BOOLEAN NOT NULL DEFAULT true,
-  criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
-  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+# connect
+  connect:
+    environment:
+      KAFKA_JMX_OPTS: "-Dcom.sun.management.jmxremote=false"
 
-CREATE TABLE IF NOT EXISTS auth.usuario_contrato (
-  usuario_id BIGINT NOT NULL REFERENCES auth.usuario(id),
-  contrato_id BIGINT NOT NULL REFERENCES auth.contrato(id),
-  ativo BOOLEAN NOT NULL DEFAULT true,
-  criado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
-  atualizado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (usuario_id, contrato_id)
-);
-
-INSERT INTO auth.usuario (nome, email, pode_acessar) VALUES
-  ('Alice', 'alice@example.com', true),
-  ('Bruno', 'bruno@example.com', true),
-  ('Carla', 'carla@example.com', false)
-ON CONFLICT DO NOTHING;
-
-INSERT INTO auth.contrato (descricao, ativo) VALUES
-  ('Contrato Premium', true),
-  ('Contrato Trial', false),
-  ('Contrato Padrão', true)
-ON CONFLICT DO NOTHING;
-
-INSERT INTO auth.usuario_contrato (usuario_id, contrato_id, ativo) VALUES
-  (1, 1, true),
-  (1, 2, false),
-  (2, 2, true),
-  (3, 3, true);
+# kafka broker (opcional)
+  kafka:
+    environment:
+      KAFKA_JMX_OPTS: "-Dcom.sun.management.jmxremote=false"
 ```
+## Ou
+```sql
+docker exec -it \
+  -e KSQL_JMX_OPTS="-Dcom.sun.management.jmxremote=false" \
+  poc-ksqldb ksql http://localhost:8088
+
+
+
+```
+
+
+
 
 ### Query de acesso consolidado
 ```sql
@@ -118,6 +61,26 @@ docker exec -it poc-pg-acesso psql -U poc -d acesso
 ```
 ```sql
 ---
+
+#Criar tópicos 
+```bash
+docker exec -it poc-kafka kafka-topics \
+  --bootstrap-server kafka:9092 \
+  --create --topic pg.auth.usuario \
+  --partitions 1 --replication-factor 1
+
+docker exec -it poc-kafka kafka-topics \
+  --bootstrap-server kafka:9092 \
+  --create --topic pg.auth.contrato \
+  --partitions 1 --replication-factor 1
+
+docker exec -it poc-kafka kafka-topics \
+  --bootstrap-server kafka:9092 \
+  --create --topic pg.auth.usuario_contrato \
+  --partitions 1 --replication-factor 1
+```
+
+
 # CONECTORES
 
 ## Criar conector via REST
@@ -150,11 +113,7 @@ UPDATE auth.usuario_contrato SET ativo = false, atualizado_em = now() WHERE usua
 -- Bloquear acesso lógico de um usuário
 UPDATE auth.usuario SET pode_acessar = false, atualizado_em = now() WHERE id = 1;
 ```
-
-
-
 ---
-
 
 
 
@@ -162,5 +121,73 @@ UPDATE auth.usuario SET pode_acessar = false, atualizado_em = now() WHERE id = 1
 
 ```bash
 docker exec -it poc-ksqldb ksql http://localhost:8088
+```
+# Criando STREAMS
+```sql
+CREATE STREAM USUARIO_SRC (
+  op STRING,
+  after STRUCT<
+    id BIGINT,
+    nome STRING,
+    email STRING,
+    pode_acessar BOOLEAN,
+    ativo BOOLEAN
+  >
+) WITH (
+  KAFKA_TOPIC='pg.auth.usuario',
+  VALUE_FORMAT='JSON',
+  KEY_FORMAT='JSON'
+);
+
+
+CREATE STREAM CONTRATO_SRC (
+  op STRING,
+  after STRUCT<
+    id BIGINT,
+    descricao STRING,
+    ativo BOOLEAN
+  >
+) WITH (
+  KAFKA_TOPIC='pg.auth.contrato',
+  VALUE_FORMAT='JSON',
+  KEY_FORMAT='JSON'
+);
+
+
+CREATE STREAM UC_SRC (
+  op STRING,
+  after STRUCT<
+    usuario_id BIGINT,
+    contrato_id BIGINT,
+    ativo BOOLEAN
+  >
+) WITH (
+  KAFKA_TOPIC='pg.auth.usuario_contrato',
+  VALUE_FORMAT='JSON',
+  KEY_FORMAT='JSON'
+);
+
+```
+
+
+# Criando KTables
+```sql
+
+-- garante leitura desde o início no console
+SET 'auto.offset.reset' = 'earliest';
+
+CREATE TABLE USUARIO AS
+  SELECT
+    CAST(USUARIO_SRC->after->id AS BIGINT) AS usuario_id,
+    LATEST_BY_OFFSET(
+      CAST(USUARIO_SRC->after->ativo AS BOOLEAN)
+      AND
+      CAST(USUARIO_SRC->after->pode_acessar AS BOOLEAN)
+    ) AS pode
+  FROM USUARIO_SRC
+  WHERE USUARIO_SRC->op IN ('c','u','r')   -- ignora tombstones
+  GROUP BY CAST(USUARIO_SRC->after->id AS BIGINT);
+
+
 
 ```
