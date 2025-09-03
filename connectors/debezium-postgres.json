@@ -20,7 +20,7 @@
 
     "table.include.list": "auth.cliente,auth.contrato,auth.cliente_contrato",
 
-    "snapshot.mode": "initial",
+    "snapshot.mode": "never", 
     "tombstones.on.delete": "true",
     "delete.handling.mode": "none",
 

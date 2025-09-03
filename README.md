@@ -112,3 +112,37 @@ LEFT JOIN auth.contrato c          ON c.id = uc.contrato_id
 GROUP BY u.id, u.nome, u.ativo, u.pode_acessar
 ORDER BY u.id;
 ```
+### Entrar no Postgres
+```bash
+docker exec -it poc-pg-acesso psql -U poc -d acesso
+```
+```sql
+UPDATE auth.contrato SET ativo = true, atualizado_em = now() WHERE id = 2;
+
+
+-- Ligar um usuário a um contrato
+INSERT INTO auth.usuario_contrato (usuario_id, contrato_id, ativo) VALUES (2, 1, true)
+ON CONFLICT (usuario_id, contrato_id) DO UPDATE SET ativo = EXCLUDED.ativo, atualizado_em = now();
+
+
+-- Desativar vínculo (sem deletar)
+UPDATE auth.usuario_contrato SET ativo = false, atualizado_em = now() WHERE usuario_id = 1 AND contrato_id = 2;
+
+
+-- Bloquear acesso lógico de um usuário
+UPDATE auth.usuario SET pode_acessar = false, atualizado_em = now() WHERE id = 1;
+```
+
+
+
+---
+
+
+
+
+# KSQLDB
+
+```bash
+docker exec -it poc-ksqldb ksql http://localhost:8088
+
+```
