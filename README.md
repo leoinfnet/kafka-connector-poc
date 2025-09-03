@@ -117,6 +117,24 @@ ORDER BY u.id;
 docker exec -it poc-pg-acesso psql -U poc -d acesso
 ```
 ```sql
+---
+# CONECTORES
+
+## Criar conector via REST
+```bash
+curl -s -X POST http://localhost:8083/connectors \
+-H 'Content-Type: application/json' \
+-d @connectors/debezium-postgres.json | jq .
+```
+## Conferir status
+curl -s http://localhost:8083/connectors/pg-acesso-debezium/status | jq .
+
+# Testando CDC
+```
+docker exec -it poc-pg-acesso psql -U poc -d acesso
+```
+```sql
+-- Ativar um contrato que estava inativo
 UPDATE auth.contrato SET ativo = true, atualizado_em = now() WHERE id = 2;
 
 
