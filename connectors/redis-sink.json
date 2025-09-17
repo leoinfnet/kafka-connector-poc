@@ -1,0 +1,16 @@
+{
+  "name": "redis-invalidar-sink",
+  "config": {
+    "connector.class": "com.github.jcustenborder.kafka.connect.redis.RedisSinkConnector",
+    "tasks.max": "1",
+
+    "topics": "usuarios.invalidar",
+
+    "redis.hosts": "redis:6379",
+    "redis.password": "",
+    "redis.database": "0",
+
+    "redis.command": "DEL",
+    "redis.key.template": "user:${user_id}"
+  }
+}

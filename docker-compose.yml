@@ -84,7 +84,42 @@ services:
       VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
     networks:
       - POC
+  connect-redis:
+    build:
+      context: .
+      dockerfile: connect-sink.Dockerfile
+    container_name: poc-connect-redis
+    depends_on: [kafka, postgres]
+    ports:
+      - "8084:8083"  # REST do Connect
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: "kafka:9092"
+      BOOTSTRAP_SERVERS: "kafka:9092"
+      CONNECT_GROUP_ID: "poc-connect-sink-group"
+      CONNECT_CONFIG_STORAGE_TOPIC: _connect2-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _connect2-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _connect2-status
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_LISTENERS: "http://0.0.0.0:8083"
+      CONNECT_REST_ADVERTISED_HOST_NAME: "poc-connect-redis"
+      CONNECT_REST_ADVERTISED_PORT: "8083"
+      
 
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+
+      # Converters simples (JSON sem schema) para facilitar a POC
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    networks:
+      - POC
 
     # === UI Visual do Kafka ===
   kafka-ui:
@@ -100,6 +135,7 @@ services:
       SERVER_PORT: 8080
     networks: [POC]
 
+
 #----- KSQLDB
   ksqldb:
       image: confluentinc/ksqldb-server:0.29.0
@@ -110,11 +146,18 @@ services:
         KSQL_LISTENERS: http://0.0.0.0:8088
         KSQL_KSQL_SERVICE_ID: "poc_ksqldb"
         KSQL_KSQL_LOGGING_PROCESSING_STREAM_AUTO_CREATE: "true"
+        KSQL_JMX_OPTS: "-Dlog4j2.disable.jmx=true"
+
         KSQL_KSQL_LOGGING_PROCESSING_TOPIC_AUTO_CREATE: "true"
-        KSQL_JMX_OPTS: "-Dcom.sun.management.jmxremote=false"
+        #KSQL_JMX_OPTS: ""
+        JMX_PORT: ""
+        KSQL_LOG4J_OPTS: "-Dlog4j.configuration=file:/etc/ksqldb/log4j.properties"
+
       ports:
         - "8088:8088"
       networks: [POC]
+      volumes:
+        - ./logs/log4j.properties:/etc/ksqldb/log4j.properties:ro
 
 
   redis:
@@ -123,6 +166,31 @@ services:
     ports:
       - "6379:6379" 
     networks: [POC]
+  # connect-sink:
+  #   build:
+  #     context: .
+  #     dockerfile: connect-sink.Dockerfile
+  #   container_name: poc-connect-sink
+  #   depends_on: [kafka,postgres]   # (redis é opcional)
+  #   ports: ["8084:8083"]
+  #   environment:
+  #     CONNECT_BOOTSTRAP_SERVERS: "kafka:9092"
+  #     BOOTSTRAP_SERVERS: "kafka:9092"
+  #     CONNECT_GROUP_ID: "poc-connect-sink-group"
+  #     CONNECT_CONFIG_STORAGE_TOPIC: _connect2-configs
+  #     CONNECT_OFFSET_STORAGE_TOPIC: _connect2-offsets
+  #     CONNECT_STATUS_STORAGE_TOPIC: _connect2-status
+  #     CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+  #     CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+  #     CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+  #     CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+  #     CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+
+  #     # 👇 necessários para subir o REST
+  #     CONNECT_LISTENERS: "http://0.0.0.0:8083"
+  #     CONNECT_REST_ADVERTISED_HOST_NAME: "poc-connect-sink"
+  #     CONNECT_REST_ADVERTISED_PORT: "8083"
+
 networks:
   POC:
     name: POC 

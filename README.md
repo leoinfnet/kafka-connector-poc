@@ -82,12 +82,23 @@ docker exec -it poc-kafka kafka-topics \
 
 # CONECTORES
 
-## Criar conector via REST
+## Criar conector via REST do POSTGRES
 ```bash
 curl -s -X POST http://localhost:8083/connectors \
 -H 'Content-Type: application/json' \
 -d @connectors/debezium-postgres.json | jq .
 ```
+
+## Criar conector via REST do REDIS
+```bash
+curl -s -X POST http://localhost:8084/connectors \
+-H 'Content-Type: application/json' \
+-d @connectors/redis-sink.json | jq .
+```
+
+
+
+
 ## Conferir status
 curl -s http://localhost:8083/connectors/pg-acesso-debezium/status | jq .
 
@@ -138,6 +149,35 @@ CREATE STREAM USUARIO_SRC (
   KEY_FORMAT='JSON'
 );
 
+CREATE STREAM USUARIO_BY_ID
+  WITH (KAFKA_TOPIC='pg.auth.usuario.by_id',
+        VALUE_FORMAT='JSON',
+        KEY_FORMAT='JSON') AS
+SELECT
+  after->id            AS id,          -- vira a CHAVE
+  after->nome          AS nome,
+  after->email         AS email,
+  after->pode_acessar  AS pode_acessar,
+  after->ativo         AS ativo
+FROM USUARIO_SRC
+WHERE after IS NOT NULL
+PARTITION BY after->id
+EMIT CHANGES;
+
+
+CREATE STREAM USUARIOS_INVALIDAR
+  WITH (
+    KAFKA_TOPIC='usuarios.invalidar',
+    VALUE_FORMAT='JSON',
+    KEY_FORMAT='JSON'
+  ) AS
+SELECT
+  id       AS user_id,     -- vira coluna de valor
+  'inactive' AS reason
+FROM USUARIO_BY_ID          -- <- STREAM!
+WHERE ativo = FALSE
+EMIT CHANGES;
+
 
 CREATE STREAM CONTRATO_SRC (
   op STRING,
@@ -166,6 +206,7 @@ CREATE STREAM UC_SRC (
   KEY_FORMAT='JSON'
 );
 
+
 ```
 
 
@@ -176,31 +217,37 @@ CREATE STREAM UC_SRC (
 SET 'auto.offset.reset' = 'earliest';
 
 
-CREATE TABLE CONTRATO AS
-  SELECT
-    CAST(CONTRATO_SRC->after->id AS BIGINT) AS contrato_id,
-    LATEST_BY_OFFSET(CAST(CONTRATO_SRC->after->ativo AS BOOLEAN)) AS ativo
-  FROM CONTRATO_SRC
-  WHERE CONTRATO_SRC->op IN ('c','u','r')
-  GROUP BY CAST(CONTRATO_SRC->after->id AS BIGINT);
 
-CREATE TABLE CONTRATO AS
+CREATE TABLE USUARIO
+WITH (KAFKA_TOPIC='USUARIO', VALUE_FORMAT='JSON') AS
   SELECT
-    CAST(after->id AS BIGINT) AS contrato_id,
-    LATEST_BY_OFFSET(CAST(after->ativo AS BOOLEAN)) AS ativo
-  FROM CONTRATO_SRC
+    CAST(after->id AS BIGINT) AS usuario_id,
+    LATEST_BY_OFFSET(
+      CAST(after->ativo AS BOOLEAN)
+      AND
+      CAST(after->pode_acessar AS BOOLEAN)
+    ) AS pode
+  FROM USUARIO_SRC
   WHERE op IN ('c','u','r') AND after IS NOT NULL
   GROUP BY CAST(after->id AS BIGINT);
 
-CREATE TABLE USUARIO_CONTRATOS AS
-  SELECT
-    CAST(after->id AS BIGINT) AS usuario_id,
-    COLLECT_SET(CAST(after->contrato_id AS BIGINT)) FILTER (
-      WHERE CAST(after->ativo AS BOOLEAN) = TRUE
-    ) AS contratos_ativos
-  FROM UC_SRC
-  WHERE op IN ('c','u','r') AND after IS NOT NULL
-  GROUP BY CAST(after->usuario_id AS BIGINT);
+CREATE TABLE USUARIO_TBL (
+  id BIGINT PRIMARY KEY,
+  nome STRING,
+  email STRING,
+  pode_acessar BOOLEAN,
+  ativo BOOLEAN
+) WITH (
+  KAFKA_TOPIC='pg.auth.usuario.by_id',
+  VALUE_FORMAT='JSON',
+  KEY_FORMAT='JSON'
+);
 
 
-```
+
+DESCRIBE USUARIO;
+
+-- ver algumas linhas (lembrando: é TABLE, mas dá pra espiar mudanças)
+SELECT usuario_id, pode FROM USUARIO EMIT CHANGES LIMIT 10;
+
+
