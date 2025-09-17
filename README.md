@@ -97,10 +97,11 @@ curl -s -X POST http://localhost:8084/connectors \
 ```
 
 
-
-
-## Conferir status
+## Conferir status POTGRES
 curl -s http://localhost:8083/connectors/pg-acesso-debezium/status | jq .
+
+## Conferir status REDIS
+curl -s http://localhost:8084/connectors/redis-invalidar-sink/status | jq .
 
 # Testando CDC
 ```
