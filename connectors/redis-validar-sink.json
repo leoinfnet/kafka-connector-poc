@@ -1,0 +1,23 @@
+{
+  "name": "redis-validar-sink",
+  "config": {
+    "connector.class": "com.github.jcustenborder.kafka.connect.redis.RedisSinkConnector",
+    "tasks.max": "1",
+
+    "topics": "usuarios.status",
+
+    "redis.hosts": "redis:6379",
+    "redis.database": "0",
+    "redis.command": "HSET",
+    "redis.key.template": "user:${user_id}",
+
+    "transforms": "filterActive",
+    "transforms.filterActive.type": "org.apache.kafka.connect.transforms.Filter$Value",
+    "transforms.filterActive.predicate": "isActive",
+
+    "predicates": "isActive",
+    "predicates.isActive.type": "org.apache.kafka.connect.transforms.predicates.ValueFieldPredicate",
+    "predicates.isActive.field": "reason",
+    "predicates.isActive.predicate.pattern": "active"
+  }
+}

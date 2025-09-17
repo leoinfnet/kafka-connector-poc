@@ -96,6 +96,15 @@ curl -s -X POST http://localhost:8084/connectors \
 -d @connectors/redis-sink.json | jq .
 ```
 
+## Criar conector via REST do REDIS para validar
+
+```bash
+curl -X POST http://localhost:8084/connectors \
+  -H "Content-Type: application/json" \
+  -d @connectors/redis-validar-sink.json
+``` 
+
+
 
 ## Conferir status POTGRES
 curl -s http://localhost:8083/connectors/pg-acesso-debezium/status | jq .
@@ -176,7 +185,54 @@ SELECT
   id       AS user_id,     -- vira coluna de valor
   'inactive' AS reason
 FROM USUARIO_BY_ID          -- <- STREAM!
-WHERE ativo = FALSE
+WHERE ativo = FALSE or pode_acessar = FALSE
+EMIT CHANGES;
+
+CREATE STREAM USUARIOS_VALIDAR
+  WITH (
+    KAFKA_TOPIC='usuarios.validar',
+    VALUE_FORMAT='JSON',
+    KEY_FORMAT='JSON'
+  ) AS
+SELECT
+  id       AS user_id,     -- vira coluna de valor
+  'active' AS reason
+FROM USUARIO_BY_ID          -- <- STREAM!
+WHERE ativo = TRUE AND pode_acessar = TRUE
+EMIT CHANGES;
+
+
+CREATE STREAM USUARIOS_PODE_LOGAR
+  WITH (
+    KAFKA_TOPIC='usuarios.pode_logar',
+    VALUE_FORMAT='JSON',
+    KEY_FORMAT='JSON'
+  ) AS
+SELECT
+  id        AS user_id,
+  nome      AS nome,
+  email     AS email,
+  pode_acessar,
+  ativo
+FROM USUARIO_BY_ID
+WHERE pode_acessar = TRUE
+  AND ativo = TRUE
+EMIT CHANGES;
+
+
+
+CREATE STREAM USUARIOS_STATUS_STREAM
+  WITH (
+    KAFKA_TOPIC='usuarios.status.stream',
+    VALUE_FORMAT='JSON',
+    KEY_FORMAT='JSON'
+  ) AS
+SELECT user_id, reason FROM USUARIOS_VALIDAR
+EMIT CHANGES;
+
+
+INSERT INTO USUARIOS_STATUS_STREAM
+SELECT user_id, reason FROM USUARIOS_INVALIDAR
 EMIT CHANGES;
 
 
@@ -245,6 +301,19 @@ CREATE TABLE USUARIO_TBL (
 );
 
 
+CREATE TABLE USUARIOS_STATUS
+  WITH (
+    KAFKA_TOPIC='usuarios.status',
+    VALUE_FORMAT='JSON',
+    KEY_FORMAT='JSON'
+  ) AS
+SELECT
+  user_id,
+  LATEST_BY_OFFSET(reason) AS reason
+FROM USUARIOS_STATUS_STREAM
+GROUP BY user_id
+EMIT CHANGES;
+
 
 DESCRIBE USUARIO;
 
@@ -252,3 +321,4 @@ DESCRIBE USUARIO;
 SELECT usuario_id, pode FROM USUARIO EMIT CHANGES LIMIT 10;
 
 
+SELECT * FROM USUARIOS_INVALIDAR EMIT CHANGES LIMIT 5;
